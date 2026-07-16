@@ -5,12 +5,18 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.betslip.analyzer.BetSlipApp
 import com.betslip.analyzer.data.model.*
 import com.betslip.analyzer.data.repository.FootballRepository
+import com.betslip.analyzer.ml.PredictionLearningEngine
 import kotlinx.coroutines.launch
 
 class AnalysisViewModel : ViewModel() {
     private val repository = FootballRepository()
+    private val learningEngine: PredictionLearningEngine = PredictionLearningEngine(
+        BetSlipApp.database.predictionDao(),
+        BetSlipApp.database.metricsDao()
+    )
     
     private val _analysisResults = MutableLiveData<List<SelectionAnalysis>>()
     val analysisResults: LiveData<List<SelectionAnalysis>> = _analysisResults
@@ -26,6 +32,9 @@ class AnalysisViewModel : ViewModel() {
     
     private val _selectedSelectionDetails = MutableLiveData<SelectionAnalysis?>()
     val selectedSelectionDetails: LiveData<SelectionAnalysis?> = _selectedSelectionDetails
+    
+    private val _modelReliability = MutableLiveData<Double>(0.5)
+    val modelReliability: LiveData<Double> = _modelReliability
     
     fun analyzeSelections(betSlipData: BetSlipData) {
         viewModelScope.launch {
@@ -45,7 +54,10 @@ class AnalysisViewModel : ViewModel() {
                 val recentMatches = matchesResult.getOrNull() ?: emptyList()
                 val liveMatches = liveMatchesResult.getOrNull() ?: emptyList()
                 
-                Log.d("AnalysisViewModel", "Fetched ${recentMatches.size} matches and ${liveMatches.size} live matches")
+                val modelReliability = learningEngine.getModelReliability()
+                _modelReliability.value = modelReliability
+                
+                Log.d("AnalysisViewModel", "Model Reliability: ${(modelReliability * 100).toInt()}%")
                 
                 val analysisResults = betSlipData.selections.map { selection ->
                     analyzeSelection(selection, recentMatches, liveMatches)
@@ -53,7 +65,11 @@ class AnalysisViewModel : ViewModel() {
                 
                 _analysisResults.value = analysisResults
                 
-                val overall = generateOverallAnalysis(betSlipData, analysisResults)
+                analysisResults.forEach { analysis ->
+                    learningEngine.recordPrediction(analysis, analysis.selection)
+                }
+                
+                val overall = generateOverallAnalysis(betSlipData, analysisResults, modelReliability)
                 _overallResult.value = overall
                 
                 _loadingState.value = false
@@ -81,6 +97,7 @@ class AnalysisViewModel : ViewModel() {
         }
         
         val form = calculateForm(teamMatches)
+        val homeAwayForm = calculateHomeAwayForm(teamMatches, selection.opponent)
         val winProbability = calculateWinProbability(teamMatches, form)
         val confidence = calculateConfidence(teamMatches)
         val recommendation = generateRecommendation(teamMatches, form, selection, winProbability)
@@ -89,12 +106,14 @@ class AnalysisViewModel : ViewModel() {
         return SelectionAnalysis(
             selection = selection,
             recentForm = form,
+            homeAwayForm = homeAwayForm,
             winProbability = winProbability,
             recommendation = recommendation,
             confidence = confidence,
             currentlyLive = currentlyLive,
             lastMatches = teamMatches.take(5),
-            insights = insights
+            insights = insights,
+            predictedReliability = learningEngine.getModelReliability()
         )
     }
     
@@ -115,6 +134,18 @@ class AnalysisViewModel : ViewModel() {
         val draws = results.count { it == "🟰" }
         
         return "${results.joinToString("")} (${wins}W-${draws}D-${losses}L)"
+    }
+    
+    private fun calculateHomeAwayForm(matches: List<FootballMatch>, opponent: String): String {
+        if (matches.isEmpty()) return "Home: - | Away: -"
+        
+        val homeMatches = matches.filter { it.homeTeam.name.equals(opponent, ignoreCase = true) }
+        val awayMatches = matches.filter { it.awayTeam.name.equals(opponent, ignoreCase = true) }
+        
+        val homeWins = homeMatches.count { it.homeScore > it.awayScore }
+        val awayWins = awayMatches.count { it.awayScore > it.homeScore }
+        
+        return "Home: ${homeWins}W | Away: ${awayWins}W"
     }
     
     private fun calculateWinProbability(matches: List<FootballMatch>, form: String): Double {
@@ -212,7 +243,8 @@ class AnalysisViewModel : ViewModel() {
     
     private fun generateOverallAnalysis(
         betSlipData: BetSlipData,
-        analyses: List<SelectionAnalysis>
+        analyses: List<SelectionAnalysis>,
+        modelReliability: Double
     ): BetSlipAnalysisResult {
         val strongPicks = analyses.count { it.recommendation.contains("STRONG") }
         val goodPicks = analyses.count { it.recommendation.contains("GOOD") }
@@ -220,11 +252,6 @@ class AnalysisViewModel : ViewModel() {
         
         val avgConfidence = analyses.map { it.confidence }.average()
         val avgWinProbability = analyses.map { it.winProbability }.average()
-        
-        val impliedProb = 1.0 / betSlipData.totalOdds
-        val recommendedOdds = analyses.fold(1.0) { acc, analysis ->
-            acc * (analysis.winProbability / 100.0)
-        }
         
         val recommendation = when {
             strongPicks == analyses.size && avgWinProbability > 70 -> "✅ EXCELLENT BET - All selections with strong form"
@@ -241,11 +268,13 @@ class AnalysisViewModel : ViewModel() {
         
         return BetSlipAnalysisResult(
             bookingCode = betSlipData.bookingCode,
+            provider = betSlipData.provider,
             originalOdds = betSlipData.totalOdds,
-            analysisOdds = recommendedOdds,
+            analysisOdds = 0.0,
             selections = analyses,
             overallRecommendation = recommendation,
-            riskLevel = riskLevel
+            riskLevel = riskLevel,
+            modelAccuracy = modelReliability * 100
         )
     }
     
