@@ -1,0 +1,31 @@
+// Project level build.gradle
+buildscript {
+    ext {
+        kotlin_version = '1.9.10'
+        compose_version = '1.5.3'
+        retrofit_version = '2.9.0'
+        room_version = '2.5.2'
+        lifecycle_version = '2.6.1'
+    }
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.1.0'
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}
+
+plugins {
+    id 'com.android.application' version '8.1.0' apply false
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
