@@ -1,69 +1,57 @@
-# .github/workflows/build-apk.yml
-name: Build and Release APK
+# .github/workflows/android-build.yml
+name: Android APK Builder
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main", "master" ]
   pull_request:
-    branches:
-      - main
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: Checkout code
+      # 1. Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
-      
-      - name: Set up Java
-        uses: actions/setup-java@v3
+
+      # 2. Set Up Java 17
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
         with:
+          java-version: '17'
           distribution: 'temurin'
-          java-version: '11'
-      
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-      
-      - name: Grant execute permission to gradle
-        run: chmod +x gradlew
-      
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
-      
-      - name: Build release APK (unsigned)
-        run: ./gradlew assembleRelease --no-daemon
-      
-      - name: Upload debug APK as artifact
+          cache: 'gradle'
+
+      # 3. Grant Execute Permission to Gradle Wrapper
+      - name: Grant Gradle Permissions
+        run: chmod +x ./gradlew
+
+      # 4. Build Debug APK
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
+
+      # 5. Upload APK Artifact
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: app-debug-apk
+          path: |
+            **/build/outputs/apk/debug/*.apk
           retention-days: 30
-      
-      - name: Upload release APK as artifact
+
+      # 6. Build Release APK (Optional)
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      # 7. Upload Release APK Artifact
+      - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: app-release
-          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          name: app-release-apk
+          path: |
+            **/build/outputs/apk/release/*.apk
           retention-days: 30
-      
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/release/app-release-unsigned.apk
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
-      - name: Post build status
-        if: always()
-        run: |
-          echo "Build completed at $(date)"
-          echo "Debug APK: app/build/outputs/apk/debug/app-debug.apk"
-          echo "Release APK: app/build/outputs/apk/release/app-release-unsigned.apk"
-        
+
