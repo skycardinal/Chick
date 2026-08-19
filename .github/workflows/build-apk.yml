@@ -19,7 +19,7 @@ jobs:
 
       # 2. Set Up Java 17
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -34,7 +34,7 @@ jobs:
         run: ./gradlew assembleDebug
 
       # 5. Upload APK Artifact
-      - name: Upload APK Artifact
+      - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
@@ -54,4 +54,4 @@ jobs:
           path: |
             **/build/outputs/apk/release/*.apk
           retention-days: 30
-
+          
